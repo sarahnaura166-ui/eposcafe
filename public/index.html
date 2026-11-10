@@ -15,19 +15,20 @@
   <main class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
     <!-- Daftar Menu -->
     <div class="md:col-span-2 space-y-4">
-      <div class="flex justify-between items-center bg-stone-800 p-4 rounded-xl border border-stone-700">
+      <div class="flex flex-wrap gap-3 justify-between items-center bg-stone-800 p-4 rounded-xl border border-stone-700">
         <h2 class="font-semibold text-lg">Daftar Menu</h2>
         <!-- Form Tambah Menu Cepat -->
         <form id="menu-form" class="flex gap-2">
           <input type="text" id="menu-name" placeholder="Nama Menu" required class="p-1.5 bg-stone-700 border border-stone-600 rounded text-sm w-32">
-          <input type="number" id="menu-price" placeholder="Harga" required class="p-1.5 bg-stone-700 border border-stone-600 rounded text-sm w-24">
+          <input type="number" id="menu-price" placeholder="Harga" min="0" step="any" required class="p-1.5 bg-stone-700 border border-stone-600 rounded text-sm w-24">
           <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded text-sm font-medium transition">+ Menu</button>
         </form>
       </div>
-      
+
       <div id="menu-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <!-- Item menu dimuat dinamis -->
       </div>
+      <p id="menu-status" class="text-sm text-stone-400"></p>
     </div>
 
     <!-- Keranjang & Kasir -->
@@ -57,10 +58,44 @@
     let menuData = [];
     let cart = [];
 
+    const escapeHtml = (value) => String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+    const formatRupiah = (value) => `Rp ${Number(value || 0).toLocaleString('id-ID')}`;
+
+    function setStatus(message, isError = false) {
+      const el = document.getElementById('menu-status');
+      el.textContent = message || '';
+      el.className = isError
+        ? 'text-sm text-red-400'
+        : 'text-sm text-stone-400';
+    }
+
     async function fetchMenu() {
-      const res = await fetch('/api/menu');
-      menuData = await res.json();
-      renderMenu();
+      const grid = document.getElementById('menu-grid');
+      try {
+        const res = await fetch('/api/menu');
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+        }
+        if (!Array.isArray(data)) {
+          throw new Error('Format respons menu tidak valid');
+        }
+
+        menuData = data;
+        renderMenu();
+        setStatus('');
+      } catch (error) {
+        menuData = [];
+        grid.innerHTML = '';
+        setStatus(`Gagal memuat menu: ${error.message}`, true);
+      }
     }
 
     function renderMenu() {
@@ -69,18 +104,20 @@
         grid.innerHTML = '<p class="col-span-full text-stone-500 text-center py-6">Belum ada menu tersedia. Tambahkan melalui form di atas.</p>';
         return;
       }
-      grid.innerHTML = menuData.map(item => `
-        <div onclick='addToCart(${JSON.stringify(item)})' class="bg-stone-800/80 border border-stone-700 hover:border-amber-500 cursor-pointer p-4 rounded-xl flex flex-col justify-between transition group">
+      grid.innerHTML = menuData.map((item, index) => `
+        <div onclick="addToCart(${index})" class="bg-stone-800/80 border border-stone-700 hover:border-amber-500 cursor-pointer p-4 rounded-xl flex flex-col justify-between transition group">
           <div>
-            <h3 class="font-medium group-hover:text-amber-400 transition">${item.name}</h3>
-            <span class="text-xs text-stone-400 bg-stone-700 px-2 py-0.5 rounded inline-block mt-1">${item.category}</span>
+            <h3 class="font-medium group-hover:text-amber-400 transition">${escapeHtml(item.name)}</h3>
+            <span class="text-xs text-stone-400 bg-stone-700 px-2 py-0.5 rounded inline-block mt-1">${escapeHtml(item.category)}</span>
           </div>
-          <p class="text-emerald-400 font-semibold mt-4">Rp ${item.price.toLocaleString('id-ID')}</p>
+          <p class="text-emerald-400 font-semibold mt-4">${formatRupiah(item.price)}</p>
         </div>
       `).join('');
     }
 
-    function addToCart(item) {
+    function addToCart(index) {
+      const item = menuData[index];
+      if (!item) return;
       const existing = cart.find(i => i.id === item.id);
       if (existing) {
         existing.qty += 1;
@@ -101,18 +138,18 @@
       container.innerHTML = cart.map((item, index) => `
         <div class="flex justify-between items-center bg-stone-700/50 p-2.5 rounded border border-stone-600 text-sm">
           <div>
-            <p class="font-medium">${item.name}</p>
-            <p class="text-xs text-stone-400">Rp ${item.price.toLocaleString('id-ID')} x ${item.qty}</p>
+            <p class="font-medium">${escapeHtml(item.name)}</p>
+            <p class="text-xs text-stone-400">${formatRupiah(item.price)} x ${item.qty}</p>
           </div>
           <div class="flex items-center gap-2">
-            <span class="font-semibold">Rp ${(item.price * item.qty).toLocaleString('id-ID')}</span>
+            <span class="font-semibold">${formatRupiah(item.price * item.qty)}</span>
             <button onclick="removeFromCart(${index})" class="text-red-400 hover:text-red-300 px-1.5 font-bold">×</button>
           </div>
         </div>
       `).join('');
 
-      const total = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-      document.getElementById('cart-total').innerText = `Rp ${total.toLocaleString('id-ID')}`;
+      const total = cart.reduce((sum, item) => sum + (Number(item.price) * item.qty), 0);
+      document.getElementById('cart-total').innerText = formatRupiah(total);
     }
 
     function removeFromCart(index) {
@@ -125,34 +162,49 @@
       const name = document.getElementById('menu-name').value;
       const price = document.getElementById('menu-price').value;
 
-      await fetch('/api/menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, price, category: 'Minuman/Makanan' })
-      });
+      try {
+        const res = await fetch('/api/menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, price, category: 'Minuman/Makanan' })
+        });
+        const data = await res.json().catch(() => null);
 
-      e.target.reset();
-      fetchMenu();
+        if (!res.ok) {
+          throw new Error((data && data.error) || `HTTP ${res.status}`);
+        }
+
+        e.target.reset();
+        setStatus('Menu berhasil ditambahkan.');
+        await fetchMenu();
+      } catch (error) {
+        setStatus(`Gagal menambah menu: ${error.message}`, true);
+      }
     });
 
     async function checkout() {
       if (cart.length === 0) return alert('Keranjang masih kosong!');
       const customerName = document.getElementById('customer-name').value;
-      const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+      const totalAmount = cart.reduce((sum, item) => sum + (Number(item.price) * item.qty), 0);
 
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart, totalAmount, customerName })
-      });
+      try {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: cart, totalAmount, customerName })
+        });
+        const data = await res.json().catch(() => null);
 
-      if (res.ok) {
+        if (!res.ok) {
+          throw new Error((data && data.error) || `HTTP ${res.status}`);
+        }
+
         alert('Transaksi berhasil disimpan ke database!');
         cart = [];
         document.getElementById('customer-name').value = '';
         renderCart();
-      } else {
-        alert('Gagal memproses pesanan.');
+      } catch (error) {
+        alert(`Gagal memproses pesanan: ${error.message}`);
       }
     }
 
